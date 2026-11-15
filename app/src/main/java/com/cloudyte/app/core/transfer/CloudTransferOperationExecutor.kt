@@ -727,6 +727,9 @@ class CloudTransferOperationExecutor @JvmOverloads constructor(
         body.use { responseBody ->
             FileOutputStream(partFile, isPartialContent).use { out ->
                 val buffer = ByteArray(64 * 1024)
+                // Keep one source for the whole response. Recreating the stream inside the
+                // loop can reset/re-wrap the response source and stall or repeat downloads.
+                val input = responseBody.byteStream()
                 var copied = startOffset
                 val progressCalculator = TransferProgressCalculator()
                 while (true) {
@@ -738,7 +741,7 @@ class CloudTransferOperationExecutor @JvmOverloads constructor(
                         }
                         throw TransferInterruptedException(outcome)
                     }
-                    val count = responseBody.byteStream().read(buffer)
+                    val count = input.read(buffer)
                     if (count < 0) break
                     out.write(buffer, 0, count)
                     copied += count

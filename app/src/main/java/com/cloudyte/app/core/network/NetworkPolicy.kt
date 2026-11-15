@@ -131,7 +131,13 @@ class ConnectivityNetworkMonitor(private val context: Context) : NetworkMonitor 
     )
 
     private fun readStatus(capabilities: NetworkCapabilities?): NetworkStatus {
-        if (capabilities == null || !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+        // INTERNET only means that the network claims to provide internet access. It does not
+        // prove that Android has successfully validated reachability; captive portals, broken
+        // Wi-Fi and DNS failures commonly still advertise INTERNET.
+        if (capabilities == null ||
+            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
+            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        ) {
             return NetworkStatus.UNAVAILABLE
         }
         if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)) {

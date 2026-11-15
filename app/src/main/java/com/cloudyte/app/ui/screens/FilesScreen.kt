@@ -597,11 +597,13 @@ class FilesViewModel(
                     _isRefreshing.value = true
                 }
                 val res = repo.refresh(accId, folderId, force = force)
-                if (requestId == refreshRequestId) _isOffline.value = res.isFailure
+                if (requestId == refreshRequestId) {
+                    _isOffline.value = res.exceptionOrNull()?.isConnectivityFailure() == true
+                }
             } catch (e: Exception) {
                 if (e !is kotlinx.coroutines.CancellationException && requestId == refreshRequestId) {
                     Log.w("FilesViewModel", "Sync failed: ${e.message}")
-                    _isOffline.value = true
+                    _isOffline.value = e.isConnectivityFailure()
                 }
             } finally {
                 // A cancelled older request must not hide the active request's state.
@@ -611,6 +613,19 @@ class FilesViewModel(
                 }
             }
         }
+    }
+
+    private fun Throwable.isConnectivityFailure(): Boolean {
+        var current: Throwable? = this
+        while (current != null) {
+            if (current is java.io.IOException ||
+                current is java.net.UnknownHostException ||
+                current is java.net.ConnectException ||
+                current is java.net.SocketTimeoutException
+            ) return true
+            current = current.cause
+        }
+        return false
     }
 
     fun deleteFile(fileId: String, onSuccess: () -> Unit = {}) {
