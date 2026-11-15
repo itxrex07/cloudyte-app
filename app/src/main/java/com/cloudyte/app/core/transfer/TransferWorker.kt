@@ -30,8 +30,19 @@ class TransferWorker(
     }
 
     override suspend fun doWork(): Result {
-        val application = applicationContext as? CloudyteApplication
-            ?: return Result.failure()
+        SyncLogger.init(applicationContext)
+        SyncLogger.log(
+            "Transfer worker entered (run=$id, process=${applicationContext.javaClass.simpleName})",
+            SyncLogLevel.INFO
+        )
+        val application = applicationContext.applicationContext as? CloudyteApplication
+        if (application == null) {
+            SyncLogger.log(
+                "Transfer worker stopped: application is not CloudyteApplication",
+                SyncLogLevel.ERROR
+            )
+            return Result.failure()
+        }
         SyncLogger.log(
             "Transfer worker started (run=$id, queue=${inputData.getBoolean(KEY_QUEUE_DRAIN, false)}, trigger=${inputData.getString(KEY_TRIGGER) ?: "command"})",
             SyncLogLevel.INFO

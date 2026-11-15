@@ -44,3 +44,7 @@
 -dontwarn okio.**
 -keepnames class okhttp3.internal.publicsuffix.PublicSuffixDatabase
 
+# WorkManager creates workers reflectively from their persisted class names.
+-keep public class com.cloudyte.app.core.transfer.TransferWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
