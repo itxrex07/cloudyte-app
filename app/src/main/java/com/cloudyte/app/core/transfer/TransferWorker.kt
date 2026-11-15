@@ -8,6 +8,8 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.cloudyte.app.CloudyteApplication
 import com.cloudyte.app.core.transfer.notification.TransferNotification
+import com.cloudyte.app.sync.SyncLogLevel
+import com.cloudyte.app.sync.SyncLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
@@ -30,6 +32,10 @@ class TransferWorker(
     override suspend fun doWork(): Result {
         val application = applicationContext as? CloudyteApplication
             ?: return Result.failure()
+        SyncLogger.log(
+            "Transfer worker started (run=$id, queue=${inputData.getBoolean(KEY_QUEUE_DRAIN, false)}, trigger=${inputData.getString(KEY_TRIGGER) ?: "command"})",
+            SyncLogLevel.INFO
+        )
         if (inputData.getBoolean(KEY_QUEUE_DRAIN, false)) return drainQueue(application)
         val transferId = inputData.getString(KEY_TRANSFER_ID)
             ?: return Result.failure()
@@ -73,6 +79,7 @@ class TransferWorker(
         queueDao.requeueNetworkWaiters(now)
 
         if (!queueDao.hasRunnableTransfers(now)) {
+            SyncLogger.log("Transfer worker found no runnable queue rows (run=$id)", SyncLogLevel.INFO)
             scheduleFollowUpWork(container)
             return Result.success()
         }

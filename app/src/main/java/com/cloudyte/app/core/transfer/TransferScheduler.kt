@@ -77,8 +77,11 @@ class TransferScheduler(private val context: Context) : TransferSchedulerContrac
     }
 
     override fun kick(reason: ScheduleReason, allowMetered: Boolean) {
+        // The worker performs the authoritative network-policy check. WorkManager's CONNECTED
+        // constraint can remain unsatisfied on devices where API requests still work, which
+        // leaves queued transfers at 0% without ever starting the worker.
         val constraints = Constraints.Builder()
-            .setRequiredNetworkType(if (allowMetered) NetworkType.CONNECTED else NetworkType.UNMETERED)
+            .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
             .build()
         val request = OneTimeWorkRequestBuilder<TransferWorker>()
             .setInputData(androidx.work.Data.Builder().putBoolean(TransferWorker.KEY_QUEUE_DRAIN, true).putString(TransferWorker.KEY_TRIGGER, reason.name).build())
