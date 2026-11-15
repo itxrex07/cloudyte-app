@@ -3,6 +3,8 @@ package com.cloudyte.app.core.transfer
 import android.content.Context
 import com.cloudyte.app.BuildConfig
 import com.cloudyte.app.core.common.CorrelationId
+import com.cloudyte.app.sync.SyncLogLevel
+import com.cloudyte.app.sync.SyncLogger
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -72,6 +74,17 @@ class TransferDiagnostics(
             if (events.size >= MAX_EVENTS) events.removeFirst()
             events.addLast(event)
         }
+        val level = when {
+            errorCode != null || state?.contains("FAILED", ignoreCase = true) == true -> SyncLogLevel.ERROR
+            state?.contains("WAITING", ignoreCase = true) == true -> SyncLogLevel.WARNING
+            else -> SyncLogLevel.INFO
+        }
+        SyncLogger.log(
+            "Transfer event operation=$operationType state=${state ?: "-"} " +
+                "transfer=${transferId ?: "-"} error=${errorCode ?: "-"} " +
+                "http=${httpStatus ?: "-"} network=${networkState ?: "-"}",
+            level
+        )
     }
 
     fun snapshot(): Snapshot = Snapshot(

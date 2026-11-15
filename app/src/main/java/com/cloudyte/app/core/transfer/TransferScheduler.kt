@@ -8,6 +8,8 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.cloudyte.app.sync.SyncLogLevel
+import com.cloudyte.app.sync.SyncLogger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -67,7 +69,11 @@ enum class ScheduleReason { USER_ENQUEUE, USER_RETRY, APP_START, NETWORK_RESTORE
 
 class TransferScheduler(private val context: Context) : TransferSchedulerContract {
     private val workManager by lazy {
-        runCatching { WorkManager.getInstance(context.applicationContext) }.getOrNull()
+        runCatching { WorkManager.getInstance(context.applicationContext) }
+            .onFailure { error ->
+                SyncLogger.log("WorkManager initialization failed: ${error.message}", SyncLogLevel.ERROR)
+            }
+            .getOrNull()
     }
 
     override fun kick(reason: ScheduleReason, allowMetered: Boolean) {
@@ -79,7 +85,18 @@ class TransferScheduler(private val context: Context) : TransferSchedulerContrac
             .setConstraints(constraints)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
-        workManager?.enqueueUniqueWork(UNIQUE_QUEUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+        val manager = workManager
+        if (manager == null) {
+            SyncLogger.log("Transfer worker not scheduled: WorkManager unavailable (reason=${reason.name})", SyncLogLevel.ERROR)
+            return
+        }
+        runCatching {
+            manager.enqueueUniqueWork(UNIQUE_QUEUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+        }.onSuccess {
+            SyncLogger.log("Transfer worker scheduled (reason=${reason.name}, metered=$allowMetered)", SyncLogLevel.INFO)
+        }.onFailure { error ->
+            SyncLogger.log("Transfer worker scheduling failed (reason=${reason.name}): ${error.message}", SyncLogLevel.ERROR)
+        }
     }
 
     override fun retrySoon(reason: ScheduleReason) = kick(reason, allowMetered = false)
@@ -145,4 +162,3 @@ class TransferScheduler(private val context: Context) : TransferSchedulerContrac
         fun transferWorkTag(transferId: String): String = "cloudyte_transfer_id:$transferId"
     }
 }
-

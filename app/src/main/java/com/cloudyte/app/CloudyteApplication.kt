@@ -9,6 +9,7 @@ import com.cloudyte.app.sync.FileMutationWorker
 import com.cloudyte.app.core.transfer.ScheduleReason
 import com.cloudyte.app.core.transfer.WorkMaintenanceScheduler
 import com.cloudyte.app.core.cache.CacheCleanupWorker
+import com.cloudyte.app.sync.SyncLogger
 
 import coil.ImageLoader
 import coil.ImageLoaderFactory
@@ -23,6 +24,7 @@ class CloudyteApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        SyncLogger.init(this)
         ApiClient.init(this)
         OfflineFileManager.init(this)
         container = AppContainer(this)
