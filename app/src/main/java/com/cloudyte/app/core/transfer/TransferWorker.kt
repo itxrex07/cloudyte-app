@@ -8,8 +8,6 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.cloudyte.app.CloudyteApplication
 import com.cloudyte.app.core.transfer.notification.TransferNotification
-import com.cloudyte.app.sync.SyncLogLevel
-import com.cloudyte.app.sync.SyncLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
@@ -21,32 +19,14 @@ class TransferWorker(
     override suspend fun getForegroundInfo(): ForegroundInfo {
         val application = applicationContext as? CloudyteApplication
         val queueDao = application?.container?.database?.transferQueueDao()
-        val totals = runCatching { queueDao?.aggregateProgressTotals() }.getOrNull()
-        return TransferNotification.foregroundInfo(
-            applicationContext,
-            totals?.bytesTransferred ?: 0L,
-            totals?.totalBytes ?: 0L
-        )
+        val transferred = runCatching { queueDao?.aggregateBytesTransferred() ?: 0L }.getOrDefault(0L)
+        val total = runCatching { queueDao?.aggregateTotalBytes() ?: 0L }.getOrDefault(0L)
+        return TransferNotification.foregroundInfo(applicationContext, transferred, total)
     }
 
     override suspend fun doWork(): Result {
-        SyncLogger.init(applicationContext)
-        SyncLogger.log(
-            "Transfer worker entered (run=$id, process=${applicationContext.javaClass.simpleName})",
-            SyncLogLevel.INFO
-        )
-        val application = applicationContext.applicationContext as? CloudyteApplication
-        if (application == null) {
-            SyncLogger.log(
-                "Transfer worker stopped: application is not CloudyteApplication",
-                SyncLogLevel.ERROR
-            )
-            return Result.failure()
-        }
-        SyncLogger.log(
-            "Transfer worker started (run=$id, queue=${inputData.getBoolean(KEY_QUEUE_DRAIN, false)}, trigger=${inputData.getString(KEY_TRIGGER) ?: "command"})",
-            SyncLogLevel.INFO
-        )
+        val application = applicationContext as? CloudyteApplication
+            ?: return Result.failure()
         if (inputData.getBoolean(KEY_QUEUE_DRAIN, false)) return drainQueue(application)
         val transferId = inputData.getString(KEY_TRANSFER_ID)
             ?: return Result.failure()
@@ -90,54 +70,42 @@ class TransferWorker(
         queueDao.requeueNetworkWaiters(now)
 
         if (!queueDao.hasRunnableTransfers(now)) {
-            SyncLogger.log("Transfer worker found no runnable queue rows (run=$id)", SyncLogLevel.INFO)
             scheduleFollowUpWork(container)
             return Result.success()
         }
 
         val prefs = com.cloudyte.app.data.UserPreferences.observe(applicationContext).first()
         val showDetailedProgress = prefs.notificationsEnabled && prefs.progressAlerts
-        val initialTotals = queueDao.aggregateProgressTotals()
         trySetForeground(
             TransferNotification.foregroundInfo(
                 applicationContext,
-                initialTotals.bytesTransferred,
-                initialTotals.totalBytes,
+                queueDao.aggregateBytesTransferred(),
+                queueDao.aggregateTotalBytes(),
                 showDetailedProgress = showDetailedProgress
             )
         )
         val trigger = runCatching { DrainTrigger.valueOf(inputData.getString(KEY_TRIGGER) ?: "APP_START") }
             .getOrDefault(DrainTrigger.APP_START)
-        var lastUiNotifyAt = 0L
-        var lastTransferId: String? = null
         val drained = container.transferQueueDrainer.drain(trigger, { isStopped }) { snapshot ->
-            val currentMs = System.currentTimeMillis()
-            val isTerminalSnapshot = snapshot.totalBytes > 0L && snapshot.bytesTransferred >= snapshot.totalBytes
-            val transferChanged = snapshot.transferId != lastTransferId
-            if (lastUiNotifyAt == 0L || transferChanged || isTerminalSnapshot || currentMs < lastUiNotifyAt || (currentMs - lastUiNotifyAt) >= 500L) {
-                lastUiNotifyAt = currentMs
-                lastTransferId = snapshot.transferId
-                setProgress(
-                    Data.Builder()
-                        .putString("transfer_id", snapshot.transferId)
-                        .putString("transfer_state", snapshot.state.name)
-                        .putLong("bytes_transferred", snapshot.bytesTransferred)
-                        .putLong("total_bytes", snapshot.totalBytes)
-                        .putLong("bytes_per_second", snapshot.bytesPerSecond)
-                        .putLong("eta_seconds", snapshot.etaSeconds ?: -1L)
-                        .build()
+            setProgress(
+                Data.Builder()
+                    .putString("transfer_id", snapshot.transferId)
+                    .putString("transfer_state", snapshot.state.name)
+                    .putLong("bytes_transferred", snapshot.bytesTransferred)
+                    .putLong("total_bytes", snapshot.totalBytes)
+                    .putLong("bytes_per_second", snapshot.bytesPerSecond)
+                    .putLong("eta_seconds", snapshot.etaSeconds ?: -1L)
+                    .build()
+            )
+            trySetForeground(
+                TransferNotification.foregroundInfo(
+                    applicationContext,
+                    queueDao.aggregateBytesTransferred(),
+                    queueDao.aggregateTotalBytes(),
+                    snapshot.transferId,
+                    showDetailedProgress = showDetailedProgress
                 )
-                val totals = queueDao.aggregateProgressTotals()
-                trySetForeground(
-                    TransferNotification.foregroundInfo(
-                        applicationContext,
-                        totals.bytesTransferred,
-                        totals.totalBytes,
-                        snapshot.transferId,
-                        showDetailedProgress = showDetailedProgress
-                    )
-                )
-            }
+            )
         }
         scheduleFollowUpWork(container)
         return when (drained) {

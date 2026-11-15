@@ -8,8 +8,6 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import com.cloudyte.app.sync.SyncLogLevel
-import com.cloudyte.app.sync.SyncLogger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -69,39 +67,19 @@ enum class ScheduleReason { USER_ENQUEUE, USER_RETRY, APP_START, NETWORK_RESTORE
 
 class TransferScheduler(private val context: Context) : TransferSchedulerContract {
     private val workManager by lazy {
-        runCatching { WorkManager.getInstance(context.applicationContext) }
-            .onFailure { error ->
-                SyncLogger.log("WorkManager initialization failed: ${error.message}", SyncLogLevel.ERROR)
-            }
-            .getOrNull()
+        runCatching { WorkManager.getInstance(context.applicationContext) }.getOrNull()
     }
 
     override fun kick(reason: ScheduleReason, allowMetered: Boolean) {
-        // The worker performs the authoritative network-policy check. WorkManager's CONNECTED
-        // constraint can remain unsatisfied on devices where API requests still work, which
-        // leaves queued transfers at 0% without ever starting the worker.
         val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
+            .setRequiredNetworkType(if (allowMetered) NetworkType.CONNECTED else NetworkType.UNMETERED)
             .build()
         val request = OneTimeWorkRequestBuilder<TransferWorker>()
             .setInputData(androidx.work.Data.Builder().putBoolean(TransferWorker.KEY_QUEUE_DRAIN, true).putString(TransferWorker.KEY_TRIGGER, reason.name).build())
             .setConstraints(constraints)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
-        val manager = workManager
-        if (manager == null) {
-            SyncLogger.log("Transfer worker not scheduled: WorkManager unavailable (reason=${reason.name})", SyncLogLevel.ERROR)
-            return
-        }
-        runCatching {
-            // Replace a stale/blocked queue chain. The durable Room rows are retained, and the
-            // fresh worker drains all runnable rows, so uploads are not lost or duplicated.
-            manager.enqueueUniqueWork(UNIQUE_QUEUE_NAME, ExistingWorkPolicy.REPLACE, request)
-        }.onSuccess {
-            SyncLogger.log("Transfer worker scheduled (fresh chain, reason=${reason.name}, metered=$allowMetered)", SyncLogLevel.INFO)
-        }.onFailure { error ->
-            SyncLogger.log("Transfer worker scheduling failed (reason=${reason.name}): ${error.message}", SyncLogLevel.ERROR)
-        }
+        workManager?.enqueueUniqueWork(UNIQUE_QUEUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 
     override fun retrySoon(reason: ScheduleReason) = kick(reason, allowMetered = false)

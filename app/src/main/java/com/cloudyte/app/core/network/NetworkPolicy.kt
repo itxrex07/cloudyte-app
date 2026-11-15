@@ -57,10 +57,6 @@ class DefaultNetworkPolicy : NetworkPolicy {
         if (snapshot.isRoaming && !snapshot.allowRoaming) {
             return PolicyDecision.WaitingForRoaming("ROAMING_DISABLED")
         }
-        val isManualBackup = transfer.operationType.equals("MANUAL_BACKUP", ignoreCase = true)
-        if (isManualBackup) {
-            return PolicyDecision.Allowed
-        }
         val isBackup = transfer.operationType.equals("BACKUP", ignoreCase = true) ||
             transfer.direction.equals("BACKUP", ignoreCase = true)
         if (isBackup && snapshot.requireChargingForBackup && !snapshot.isCharging) {
@@ -131,11 +127,7 @@ class ConnectivityNetworkMonitor(private val context: Context) : NetworkMonitor 
     )
 
     private fun readStatus(capabilities: NetworkCapabilities?): NetworkStatus {
-        // Some Android devices, VPNs and private DNS setups can reach the API successfully while
-        // Android has not marked the network as validated. The actual request is authoritative.
-        if (capabilities == null ||
-            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        ) {
+        if (capabilities == null || !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
             return NetworkStatus.UNAVAILABLE
         }
         if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)) {
