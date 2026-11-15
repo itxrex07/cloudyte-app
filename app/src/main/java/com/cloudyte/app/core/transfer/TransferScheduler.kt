@@ -94,9 +94,11 @@ class TransferScheduler(private val context: Context) : TransferSchedulerContrac
             return
         }
         runCatching {
-            manager.enqueueUniqueWork(UNIQUE_QUEUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            // Replace a stale/blocked queue chain. The durable Room rows are retained, and the
+            // fresh worker drains all runnable rows, so uploads are not lost or duplicated.
+            manager.enqueueUniqueWork(UNIQUE_QUEUE_NAME, ExistingWorkPolicy.REPLACE, request)
         }.onSuccess {
-            SyncLogger.log("Transfer worker scheduled (reason=${reason.name}, metered=$allowMetered)", SyncLogLevel.INFO)
+            SyncLogger.log("Transfer worker scheduled (fresh chain, reason=${reason.name}, metered=$allowMetered)", SyncLogLevel.INFO)
         }.onFailure { error ->
             SyncLogger.log("Transfer worker scheduling failed (reason=${reason.name}): ${error.message}", SyncLogLevel.ERROR)
         }
